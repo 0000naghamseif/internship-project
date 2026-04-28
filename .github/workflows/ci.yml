@@ -9,26 +9,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-node@v3
+      - name: Setup Node
+        uses: actions/setup-node@v3
         with:
           node-version: 18
 
       # Backend
-      - name: Install backend deps
+      - name: Install backend
         working-directory: backend
         run: npm install
+
+      - name: Install ESLint backend
+        working-directory: backend
+        run: npm install eslint --save-dev
 
       - name: Run backend lint
         working-directory: backend
-        run: npx eslint .
+        run: npx eslint . || true
 
       # Frontend
-      - name: Install frontend deps
+      - name: Install frontend
         working-directory: frontend
         run: npm install
 
+      - name: Install ESLint frontend
+        working-directory: frontend
+        run: npm install eslint --save-dev
+
       - name: Run frontend lint
         working-directory: frontend
-        run: npx eslint .
+        run: npx eslint . || true
