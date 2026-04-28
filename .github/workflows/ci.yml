@@ -2,37 +2,33 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   lint:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Setup Node
-        uses: actions/setup-node@v3
+      - uses: actions/setup-node@v3
         with:
           node-version: 18
 
+      # Backend
       - name: Install backend deps
-        run: |
-          cd backend
-          npm install
+        working-directory: backend
+        run: npm install
 
       - name: Run backend lint
-        run: |
-          cd backend
-          npx eslint .
+        working-directory: backend
+        run: npx eslint .
 
+      # Frontend
       - name: Install frontend deps
-        run: |
-          cd frontend
-          npm install
+        working-directory: frontend
+        run: npm install
 
       - name: Run frontend lint
-        run: |
-          cd frontend
-          npx eslint .
+        working-directory: frontend
+        run: npx eslint .
