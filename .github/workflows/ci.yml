@@ -15,19 +15,27 @@ jobs:
         with:
           node-version: 18
 
-      # Backend
-      - name: Install backend deps
+      # BACKEND
+      - name: Install backend
         working-directory: backend
         run: npm install
+
+      - name: Install eslint backend
+        working-directory: backend
+        run: npm install eslint
 
       - name: Run backend lint
         working-directory: backend
         run: npx eslint .
 
-      # Frontend
-      - name: Install frontend deps
+      # FRONTEND
+      - name: Install frontend
         working-directory: frontend
         run: npm install
+
+      - name: Install eslint frontend
+        working-directory: frontend
+        run: npm install eslint
 
       - name: Run frontend lint
         working-directory: frontend
