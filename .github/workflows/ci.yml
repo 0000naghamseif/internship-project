@@ -20,23 +20,15 @@ jobs:
         working-directory: backend
         run: npm install
 
-      - name: Install eslint backend
-        working-directory: backend
-        run: npm install eslint
-
       - name: Run backend lint
         working-directory: backend
-        run: npx eslint .
+        run: npx eslint "**/*.js"
 
       # FRONTEND
       - name: Install frontend
         working-directory: frontend
         run: npm install
 
-      - name: Install eslint frontend
-        working-directory: frontend
-        run: npm install eslint
-
       - name: Run frontend lint
         working-directory: frontend
-        run: npx eslint .
+        run: npx eslint "**/*.js"
