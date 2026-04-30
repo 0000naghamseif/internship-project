@@ -31,24 +31,57 @@ app.get("/admin-only",
 );
 
 
-app.post("/upload",verifyToken, upload.single("file"), (req, res) => {
-  const newFile = {
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    status: "Queued",
-    uploadedBy: req.user?.username || "guest"
-  };
+app.post(
+  "/upload",
+  verifyToken,
+  upload.single("file"),
+  (req, res) => {
+    const newFile = {
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      status: "Queued",
+      uploadedBy: req.user.username
+    };
 
-  files.push(newFile);
+    files.push(newFile);
 
-  res.json({
-    message: "File uploaded successfully",
-    file: newFile
-  });
-});
+    // simulate processing
+    setTimeout(() => {
+      newFile.status = "Processing";
+
+      setTimeout(() => {
+        newFile.status = "Done";
+      }, 3000);
+
+    }, 2000);
+
+    res.json({
+      message: "File uploaded successfully",
+      file: newFile
+    });
+  }
+);
 
 app.get("/files", (req, res) => {
   res.json(files);
+});
+
+app.patch("/files/:filename/status", (req, res) => {
+  const { filename } = req.params;
+  const { status } = req.body;
+
+  const file = files.find(f => f.filename === filename);
+
+  if (!file) {
+    return res.status(404).json({ message: "File not found" });
+  }
+
+  file.status = status;
+
+  res.json({
+    message: "Status updated",
+    file
+  });
 });
 
 app.listen(3001, () => {
