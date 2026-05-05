@@ -8,6 +8,7 @@ const verifyToken = require("./middleware/auth.middleware");
 const allowRoles = require("./middleware/role.middleware");
 const upload = require("./middleware/upload.middleware");
 const files = require("./models/file.model");
+const normalizeToPdf = require("./services/normalize.service");
 
 app.use("/auth", authRoutes);
 
@@ -30,37 +31,84 @@ app.get("/admin-only",
   }
 );
 
-
 app.post(
   "/upload",
   verifyToken,
   upload.single("file"),
-  (req, res) => {
-    const newFile = {
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      status: "Queued",
-      uploadedBy: req.user.username
-    };
+  async (req, res) => {
+    try {
+      const newFile = {
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        originalPath: req.file.path,
+        normalizedPdfPath: null,
+        normalizedFileName: null,
+        status: "Queued",
+        uploadedBy: req.user.username
+      };
 
-    files.push(newFile);
+      files.push(newFile);
 
-    // simulate processing
-    setTimeout(() => {
-      newFile.status = "Processing";
+      setTimeout(async () => {
+        try {
+          newFile.status = "Processing";
 
-      setTimeout(() => {
-        newFile.status = "Done";
-      }, 3000);
+          const normalized = await normalizeToPdf(req.file);
 
-    }, 2000);
+          newFile.normalizedPdfPath = normalized.normalizedPdfPath;
+          newFile.normalizedFileName = normalized.normalizedFileName;
+          newFile.normalizedType = normalized.type;
 
-    res.json({
-      message: "File uploaded successfully",
-      file: newFile
-    });
+          newFile.status = "Done";
+        } catch (error) {
+          newFile.status = "Failed";
+          newFile.error = error.message;
+        }
+      }, 2000);
+
+      res.json({
+        message: "File uploaded and queued for normalization",
+        file: newFile
+      });
+
+    } catch (error) {
+      res.status(500).json({
+        message: "Upload failed",
+        error: error.message
+      });
+    }
   }
 );
+// app.post(
+//   "/upload",
+//   verifyToken,
+//   upload.single("file"),
+//   (req, res) => {
+//     const newFile = {
+//       filename: req.file.filename,
+//       originalName: req.file.originalname,
+//       status: "Queued",
+//       uploadedBy: req.user.username
+//     };
+
+//     files.push(newFile);
+
+//     // simulate processing
+//     setTimeout(() => {
+//       newFile.status = "Processing";
+
+//       setTimeout(() => {
+//         newFile.status = "Done";
+//       }, 3000);
+
+//     }, 2000);
+
+//     res.json({
+//       message: "File uploaded successfully",
+//       file: newFile
+//     });
+//   }
+// );
 
 app.get("/files", (req, res) => {
   res.json(files);
