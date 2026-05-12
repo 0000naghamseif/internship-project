@@ -11,6 +11,7 @@ const files = require('./models/file.model');
 const normalizeToPdf = require('./services/normalize.service');
 const documentPages = require('./models/documentPage.model');
 const renderPdfPages = require('./services/pageRender.service');
+const { createQrPayload, generateQrImage } = require("./services/qr.service");
 
 app.use('/auth', authRoutes);
 
@@ -92,6 +93,30 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
         pageRecord.status = "Rendered";
       }
 
+      const documentQrPayload = createQrPayload({
+        type: 'document',
+        documentId: newFile.filename,
+      });
+
+      newFile.documentQrPayload = documentQrPayload;
+      newFile.documentQrPath = await generateQrImage(
+        documentQrPayload,
+        `${newFile.filename}-document-qr.png`,
+      );
+
+      for (const pageRecord of pageRecords) {
+        const pageQrPayload = createQrPayload({
+          type: 'page',
+          documentId: newFile.filename,
+          pageNumber: pageRecord.pageNumber,
+        });
+
+        pageRecord.qrPayload = pageQrPayload;
+        pageRecord.qrPath = await generateQrImage(
+          pageQrPayload,
+          `${newFile.filename}-page-${pageRecord.pageNumber}-qr.png`,
+        );
+      }
       newFile.pageCount = rendered.pageCount;
       newFile.status = "Done";
 
