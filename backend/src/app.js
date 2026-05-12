@@ -12,6 +12,8 @@ const normalizeToPdf = require('./services/normalize.service');
 const documentPages = require('./models/documentPage.model');
 const renderPdfPages = require('./services/pageRender.service');
 const { createQrPayload, generateQrImage } = require("./services/qr.service");
+const stampQrOnPdf = require("./services/pdfStamp.service");
+const path = require("path");
 
 app.use('/auth', authRoutes);
 
@@ -117,8 +119,20 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
           `${newFile.filename}-page-${pageRecord.pageNumber}-qr.png`,
         );
       }
+
+      // Stamp page QR codes onto the normalized PDF
+      const printable = await stampQrOnPdf(
+        newFile.normalizedPdfPath,
+        pageRecords,
+        newFile.filename,
+      );
+
+      newFile.printablePdfPath = printable.printablePdfPath;
+      newFile.printableFileName = printable.printableFileName;
+
       newFile.pageCount = rendered.pageCount;
-      newFile.status = "Done";
+      newFile.status = 'Done';
+      
 
     } catch (error) {
       console.log("Processing failed, attempt:", newFile.attempts);
@@ -136,64 +150,7 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
   await processFile();
 }, 2000);
 
-    // setTimeout(async () => {
-    //   try {
-    //     newFile.status = 'Processing';
-
-    //     const normalized = await normalizeToPdf(req.file);
-
-    //     newFile.normalizedPdfPath = normalized.normalizedPdfPath;
-    //     newFile.normalizedFileName = normalized.normalizedFileName;
-    //     newFile.normalizedType = normalized.type;
-
-    //     const rendered = await renderPdfPages(
-    //       normalized.normalizedPdfPath,
-    //       newFile.filename,
-    //     );
-
-    //     const pageRecords = [];
-
-    //     rendered.pageImages.forEach((page) => {
-    //       const pageRecord = {
-    //         documentId: newFile.filename,
-    //         pageNumber: page.pageNumber,
-    //         imagePath: null,
-    //         textContent: null,
-    //         status: 'Queued',
-    //       };
-
-    //       documentPages.push(pageRecord);
-    //       pageRecords.push(pageRecord);
-    //     });
-
-    //     // simulate processing pages
-    //     for (const pageRecord of pageRecords) {
-    //       try {
-    //         pageRecord.status = 'Processing';
-
-    //         // simulate small delay per page
-    //         await new Promise((resolve) => setTimeout(resolve, 500));
-
-    //         // assign image after processing
-    //         const pageData = rendered.pageImages.find(
-    //           (p) => p.pageNumber === pageRecord.pageNumber,
-    //         );
-
-    //         pageRecord.imagePath = pageData.imagePath;
-    //         pageRecord.status = 'Rendered';
-    //       } catch (err) {
-    //         pageRecord.status = 'Failed';
-    //       }
-    //     }
-
-    //     newFile.pageCount = rendered.pageCount;
-    //     newFile.status = 'Done';
-       
-    //   } catch (error) {
-    //     newFile.status = 'Failed';
-    //     newFile.error = error.message;
-    //   }
-    // }, 2000);
+   
 
     res.json({
       message: 'File uploaded and queued for normalization',
@@ -231,6 +188,42 @@ app.patch('/files/:filename/status', (req, res) => {
     message: 'Status updated',
     file,
   });
+});
+
+app.get('/files/:filename/pages', (req, res) => {
+  const { filename } = req.params;
+
+  const pages = documentPages.filter((page) => page.documentId === filename);
+
+  res.json(pages);
+});
+
+app.get('/files/:filename/qr', (req, res) => {
+  const { filename } = req.params;
+
+  const file = files.find((f) => f.filename === filename);
+
+  if (!file) {
+    return res.status(404).json({ message: 'File not found' });
+  }
+
+  res.json({
+    documentId: file.filename,
+    qrPayload: file.documentQrPayload,
+    qrPath: file.documentQrPath
+  });
+});
+
+app.get("/files/:filename/printable", (req, res) => {
+  const { filename } = req.params;
+
+  const file = files.find((f) => f.filename === filename);
+
+  if (!file || !file.printablePdfPath) {
+    return res.status(404).json({ message: "Printable PDF not found" });
+  }
+
+  res.sendFile(path.resolve(file.printablePdfPath));
 });
 
 app.listen(3001, () => {
