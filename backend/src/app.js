@@ -14,6 +14,9 @@ const renderPdfPages = require('./services/pageRender.service');
 const { createQrPayload, generateQrImage } = require("./services/qr.service");
 const stampQrOnPdf = require("./services/pdfStamp.service");
 const path = require("path");
+const extractTextFromPdf = require("./services/textExtract.service");
+const extractTextWithOcr = require("./services/ocr.service");
+const normalizeText = require("./services/textNormalize.service");
 
 app.use('/auth', authRoutes);
 
@@ -54,7 +57,7 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
   const processFile = async () => {
     try {
       newFile.attempts++;
-      newFile.status = "Processing";
+      newFile.status = 'Processing';
 
       const normalized = await normalizeToPdf(req.file);
 
@@ -64,7 +67,7 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
 
       const rendered = await renderPdfPages(
         normalized.normalizedPdfPath,
-        newFile.filename
+        newFile.filename,
       );
 
       const pageRecords = [];
@@ -75,7 +78,7 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
           pageNumber: page.pageNumber,
           imagePath: null,
           textContent: null,
-          status: "Queued"
+          status: 'Queued',
         };
 
         documentPages.push(pageRecord);
@@ -83,16 +86,16 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
       });
 
       for (const pageRecord of pageRecords) {
-        pageRecord.status = "Processing";
+        pageRecord.status = 'Processing';
 
         await new Promise((r) => setTimeout(r, 300));
 
         const pageData = rendered.pageImages.find(
-          (p) => p.pageNumber === pageRecord.pageNumber
+          (p) => p.pageNumber === pageRecord.pageNumber,
         );
 
         pageRecord.imagePath = pageData.imagePath;
-        pageRecord.status = "Rendered";
+        pageRecord.status = 'Rendered';
       }
 
       const documentQrPayload = createQrPayload({
@@ -120,6 +123,52 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
         );
       }
 
+      
+
+      // // Extract native text from normalized PDF
+      const extractedPagesText = await extractTextFromPdf(
+        newFile.normalizedPdfPath,
+      );
+
+      for (const pageRecord of pageRecords) {
+        const extracted = extractedPagesText.find(
+          (p) => p.pageNumber === pageRecord.pageNumber,
+        );
+
+        pageRecord.textContent = normalizeText(extracted?.textContent || '');
+        pageRecord.isImageOnly = extracted?.isImageOnly || false;
+        pageRecord.textExtractionMethod = pageRecord.isImageOnly
+          ? 'pending-ocr'
+          : 'native-pdf';
+
+        if (pageRecord.isImageOnly && pageRecord.imagePath) {
+          const ocrResult = await extractTextWithOcr(
+            pageRecord.imagePath,
+            'eng',
+          );
+
+          pageRecord.textContent = normalizeText(ocrResult.textContent);
+          pageRecord.ocrConfidence = ocrResult.ocrConfidence;
+          pageRecord.language = ocrResult.language;
+          pageRecord.textExtractionMethod = 'ocr';
+        }
+      }
+      // const extractedPagesText = await extractTextFromPdf(
+      //   newFile.normalizedPdfPath,
+      // );
+
+      // for (const pageRecord of pageRecords) {
+      //   const extracted = extractedPagesText.find(
+      //     (p) => p.pageNumber === pageRecord.pageNumber,
+      //   );
+
+      //   pageRecord.textContent = extracted?.textContent || '';
+      //   pageRecord.isImageOnly = extracted?.isImageOnly || false;
+      //   pageRecord.textExtractionMethod = pageRecord.isImageOnly
+      //     ? 'none'
+      //     : 'native-pdf';
+      // }
+
       // Stamp page QR codes onto the normalized PDF
       const printable = await stampQrOnPdf(
         newFile.normalizedPdfPath,
@@ -132,8 +181,6 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
 
       newFile.pageCount = rendered.pageCount;
       newFile.status = 'Done';
-      
-
     } catch (error) {
       console.log("Processing failed, attempt:", newFile.attempts);
 
@@ -224,6 +271,38 @@ app.get("/files/:filename/printable", (req, res) => {
   }
 
   res.sendFile(path.resolve(file.printablePdfPath));
+});
+
+app.get("/files/:filename/pages/:pageNumber", (req, res) => {
+  const { filename, pageNumber } = req.params;
+
+  const page = documentPages.find(
+    (p) =>
+      p.documentId === filename &&
+      p.pageNumber === Number(pageNumber)
+  );
+
+  if (!page) {
+    return res.status(404).json({ message: "Page not found" });
+  }
+
+  res.json(page);
+});
+
+app.get("/search", (req, res) => {
+  const { q } = req.query;
+
+  if (!q) {
+    return res.status(400).json({ message: "Search query is required" });
+  }
+
+  const query = q.toLowerCase();
+
+  const results = documentPages.filter((page) =>
+    page.textContent?.toLowerCase().includes(query)
+  );
+
+  res.json(results);
 });
 
 app.listen(3001, () => {
