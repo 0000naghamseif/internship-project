@@ -28,9 +28,27 @@ const renderPdfPages = async (pdfPath, documentFilename) => {
   const pageImages = [];
 
   for (let i = 1; i <= pageCount; i++) {
+
+    // try normal name
+    const normalPath = path.join(
+      pagesDir,
+      `${outputPrefix}-${i}.png`
+    );
+
+    // try padded name like 01, 02, 03...
+    const paddedPath = path.join(
+      pagesDir,
+      `${outputPrefix}-${String(i).padStart(2, "0")}.png`
+    );
+
+    // use existing file
+    const imagePath = fs.existsSync(normalPath)
+      ? normalPath
+      : paddedPath;
+
     pageImages.push({
       pageNumber: i,
-      imagePath: path.join(pagesDir, `${outputPrefix}-${i}.png`)
+      imagePath
     });
   }
 

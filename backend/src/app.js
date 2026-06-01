@@ -1,9 +1,14 @@
 const express = require('express');
+const path = require("path");
 const cors = require("cors");
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+app.use("/processed", express.static(path.join(__dirname, "..", "processed")));
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
+
 
 const authRoutes = require('./routes/auth.routes');
 const verifyToken = require('./middleware/auth.middleware');
@@ -15,7 +20,6 @@ const documentPages = require('./models/documentPage.model');
 const renderPdfPages = require('./services/pageRender.service');
 const { createQrPayload, generateQrImage } = require("./services/qr.service");
 const stampQrOnPdf = require("./services/pdfStamp.service");
-const path = require("path");
 const extractTextFromPdf = require("./services/textExtract.service");
 const extractTextWithOcr = require("./services/ocr.service");
 const normalizeText = require("./services/textNormalize.service");
@@ -292,7 +296,7 @@ app.get("/files/:filename/pages/:pageNumber", (req, res) => {
 });
 
 app.get("/search", (req, res) => {
-  const { q } = req.query;
+  const { q, uploadedBy, type, status } = req.query;
 
   if (!q) {
     return res.status(400).json({ message: "Search query is required" });
@@ -300,9 +304,61 @@ app.get("/search", (req, res) => {
 
   const query = q.toLowerCase();
 
-  const results = documentPages.filter((page) =>
-    page.textContent?.toLowerCase().includes(query)
-  );
+  const results = documentPages
+    .filter((page) => {
+      const file = files.find((f) => f.filename === page.documentId);
+
+      if (!file) return false;
+
+      const matchesText = page.textContent
+        ?.toLowerCase()
+        .includes(query);
+
+      const matchesUploader = uploadedBy
+        ? file.uploadedBy === uploadedBy
+        : true;
+
+      const matchesType = type
+        ? file.normalizedType === type
+        : true;
+
+      const matchesStatus = status
+        ? file.status === status
+        : true;
+
+      return (
+        matchesText &&
+        matchesUploader &&
+        matchesType &&
+        matchesStatus
+      );
+    })
+    .map((page) => {
+      const file = files.find((f) => f.filename === page.documentId);
+
+      const text = page.textContent || "";
+      const lowerText = text.toLowerCase();
+      const matchIndex = lowerText.indexOf(query);
+
+      const start = Math.max(matchIndex - 60, 0);
+      const end = Math.min(matchIndex + query.length + 120, text.length);
+
+      const snippet = text.substring(start, end);
+
+      return {
+        documentId: page.documentId,
+        originalName: file?.originalName || page.documentId,
+        pageNumber: page.pageNumber,
+        snippet,
+        textContent: page.textContent,
+        imagePath: page.imagePath,
+        qrPath: page.qrPath,
+        textExtractionMethod: page.textExtractionMethod,
+        uploadedBy: file?.uploadedBy || "unknown",
+        normalizedType: file?.normalizedType || "unknown",
+        status: file?.status || "unknown"
+      };
+    });
 
   res.json(results);
 });
