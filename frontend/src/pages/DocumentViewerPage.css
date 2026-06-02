@@ -1,0 +1,134 @@
+.viewer-container {
+  min-height: 100vh;
+  padding: 35px;
+  background: linear-gradient(135deg, #eaf3ff, #ffffff);
+}
+
+.viewer-header {
+  background: white;
+  padding: 22px 28px;
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0, 60, 130, 0.12);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+}
+
+.viewer-header h1 {
+  color: #0b5ed7;
+  margin: 0 0 6px;
+}
+
+.viewer-header p {
+  color: #6c757d;
+  margin: 0;
+  font-size: 14px;
+}
+
+.back-button {
+  padding: 10px 20px;
+  background: #0b5ed7;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page-card {
+  background: white;
+  padding: 25px;
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(0, 60, 130, 0.12);
+}
+
+.page-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid #e5eefb;
+  padding-bottom: 16px;
+  margin-bottom: 18px;
+}
+
+.page-top h3 {
+  color: #0b5ed7;
+  margin: 0 0 10px;
+}
+
+.page-top p {
+  margin: 6px 0;
+  color: #374151;
+}
+
+.qr-box {
+  width: 125px;
+  text-align: center;
+  padding: 12px;
+  border: 1px solid #d5e3f5;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.qr-box img {
+  width: 90px;
+  height: 90px;
+  object-fit: contain;
+}
+
+.qr-box span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #0b5ed7;
+}
+
+.page-content-grid {
+  display: grid;
+  grid-template-columns: 48% 52%;
+  gap: 22px;
+  align-items: start;
+}
+
+.page-preview,
+.page-text {
+  background: #f8fbff;
+  border: 1px solid #d5e3f5;
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.page-preview h4,
+.page-text h4 {
+  margin: 0 0 14px;
+  color: #1f2937;
+}
+
+.page-preview img {
+  width: 100%;
+  max-height: 700px;
+  object-fit: contain;
+  background: white;
+  border: 1px solid #e5eefb;
+  border-radius: 12px;
+}
+
+.page-text {
+  max-height: 700px;
+  overflow-y: auto;
+}
+
+.page-text p {
+  color: #374151;
+  line-height: 1.7;
+  font-size: 15px;
+  white-space: pre-wrap;
+}
