@@ -3,6 +3,7 @@ import api from "../services/api";
 
 function RegisterPage({ onSwitchToLogin }) {
   const [username, setUsername] = useState("");
+   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("Viewer");
   const [message, setMessage] = useState("");
@@ -11,18 +12,20 @@ function RegisterPage({ onSwitchToLogin }) {
     e.preventDefault();
 
     try {
-      await api.post("/auth/register", {
-        username,
-        password,
-        role,
-      });
+     await api.post('/auth/register', {
+       username,
+       email,
+       password,
+       role,
+     });
 
       setMessage("Account created successfully ✅");
       setUsername("");
+      setEmail("");
       setPassword("");
       setRole("Viewer");
     } catch (error) {
-      setMessage("Registration failed ❌");
+      setMessage(error.response?.data?.message || "Registration failed ❌");
     }
   };
 
@@ -31,9 +34,7 @@ function RegisterPage({ onSwitchToLogin }) {
       <div className="auth-card">
         <h1 className="auth-title">Create Account</h1>
 
-        <p className="auth-subtitle">
-          Register to start managing documents
-        </p>
+        <p className="auth-subtitle">Register to start managing documents</p>
 
         <form onSubmit={handleRegister}>
           <div className="form-group">
@@ -44,6 +45,17 @@ function RegisterPage({ onSwitchToLogin }) {
               placeholder="Choose a username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Email</label>
+
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
           </div>
 
@@ -61,10 +73,7 @@ function RegisterPage({ onSwitchToLogin }) {
           <div className="form-group">
             <label>Role</label>
 
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-            >
+            <select value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="Viewer">Viewer</option>
               <option value="Editor">Editor</option>
               <option value="Admin">Admin</option>
@@ -79,8 +88,7 @@ function RegisterPage({ onSwitchToLogin }) {
         {message && <p className="message">{message}</p>}
 
         <div className="auth-footer">
-          Already have an account?{" "}
-
+          Already have an account?{' '}
           <span className="auth-link" onClick={onSwitchToLogin}>
             Login
           </span>

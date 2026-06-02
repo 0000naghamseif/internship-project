@@ -2,6 +2,8 @@ const express = require('express');
 const path = require("path");
 const cors = require("cors");
 const app = express();
+const pool = require("./config/db");
+const crypto = require("crypto");
 
 app.use(cors());
 app.use(express.json());
@@ -23,6 +25,10 @@ const stampQrOnPdf = require("./services/pdfStamp.service");
 const extractTextFromPdf = require("./services/textExtract.service");
 const extractTextWithOcr = require("./services/ocr.service");
 const normalizeText = require("./services/textNormalize.service");
+
+const createChecksum = (value) => {
+  return crypto.createHash("sha256").update(value).digest("hex");
+};
 
 app.use('/auth', authRoutes);
 
@@ -57,6 +63,22 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
       maxAttempts: 2
     };
 
+    const dbResult = await pool.query(
+      `INSERT INTO documents 
+   (original_name, stored_name, document_type, page_count, status, uploaded_by)
+   VALUES ($1, $2, $3, $4, $5, $6)
+   RETURNING id`,
+      [
+        newFile.originalName,
+        newFile.filename,
+        newFile.normalizedType,
+        newFile.pageCount,
+        newFile.status,
+        req.user.id,
+      ],
+    );
+
+    newFile.id = dbResult.rows[0].id;
     files.push(newFile);
 
     setTimeout(async () => {
@@ -185,8 +207,55 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
       newFile.printablePdfPath = printable.printablePdfPath;
       newFile.printableFileName = printable.printableFileName;
 
+      for (const pageRecord of pageRecords) {
+        const pageChecksum = createChecksum(
+          `${newFile.filename}-${pageRecord.pageNumber}-${pageRecord.textContent || ''}`,
+        );
+
+        const insertedPage = await pool.query(
+          `INSERT INTO document_pages
+     (document_id, page_number, image_path, text_content, qr_path,
+      is_image_only, text_extraction_method, ocr_confidence, language,
+      page_checksum, qr_payload)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id`,
+          [
+            newFile.id,
+            pageRecord.pageNumber,
+            pageRecord.imagePath,
+            pageRecord.textContent,
+            pageRecord.qrPath,
+            pageRecord.isImageOnly || false,
+            pageRecord.textExtractionMethod,
+            pageRecord.ocrConfidence || null,
+            pageRecord.language || null,
+            pageChecksum,
+            pageRecord.qrPayload || null,
+          ],
+        );
+
+        pageRecord.id = insertedPage.rows[0].id;
+        pageRecord.pageChecksum = pageChecksum;
+      }
       newFile.pageCount = rendered.pageCount;
       newFile.status = 'Done';
+      await pool.query(
+        `UPDATE documents
+   SET document_type = $1,
+       page_count = $2,
+       status = $3,
+       qr_path = $4,
+       printable_pdf_path = $5
+   WHERE id = $6`,
+        [
+          newFile.normalizedType,
+          newFile.pageCount,
+          newFile.status,
+          newFile.documentQrPath,
+          newFile.printablePdfPath,
+          newFile.id,
+        ],
+      );
     } catch (error) {
       console.log("Processing failed, attempt:", newFile.attempts);
 
@@ -196,6 +265,10 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
       } else {
         newFile.status = "Failed";
         newFile.error = error.message;
+        await pool.query('UPDATE documents SET status = $1 WHERE id = $2', [
+          'Failed',
+          newFile.id,
+        ]);
       }
     }
   };
@@ -217,12 +290,62 @@ app.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
   }
 });
 
-app.get('/files', (req, res) => {
-  res.json(files);
+app.get('/files', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        d.id,
+        d.original_name AS "originalName",
+        d.stored_name AS filename,
+        d.document_type AS "normalizedType",
+        d.page_count AS "pageCount",
+        d.status,
+        d.qr_path AS "documentQrPath",
+        d.printable_pdf_path AS "printablePdfPath",
+        d.created_at AS "createdAt",
+        u.username AS "uploadedBy"
+       FROM documents d
+       LEFT JOIN users u ON d.uploaded_by = u.id
+       ORDER BY d.id DESC`,
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to fetch documents',
+      error: error.message,
+    });
+  }
 });
 
-app.get('/pages', (req, res) => {
-  res.json(documentPages);
+app.get("/pages", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        p.id,
+        d.stored_name AS "documentId",
+        p.page_number AS "pageNumber",
+        p.image_path AS "imagePath",
+        p.text_content AS "textContent",
+        p.qr_path AS "qrPath",
+        p.is_image_only AS "isImageOnly",
+        p.text_extraction_method AS "textExtractionMethod",
+        p.ocr_confidence AS "ocrConfidence",
+        p.language,
+        p.page_checksum AS "pageChecksum",
+        p.qr_payload AS "qrPayload"
+       FROM document_pages p
+       JOIN documents d ON p.document_id = d.id
+       ORDER BY p.id ASC`
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch pages",
+      error: error.message
+    });
+  }
 });
 
 app.patch('/files/:filename/status', (req, res) => {
@@ -243,12 +366,38 @@ app.patch('/files/:filename/status', (req, res) => {
   });
 });
 
-app.get('/files/:filename/pages', (req, res) => {
-  const { filename } = req.params;
+app.get("/files/:filename/pages", async (req, res) => {
+  try {
+    const { filename } = req.params;
 
-  const pages = documentPages.filter((page) => page.documentId === filename);
+    const result = await pool.query(
+      `SELECT 
+        p.id,
+        d.stored_name AS "documentId",
+        p.page_number AS "pageNumber",
+        p.image_path AS "imagePath",
+        p.text_content AS "textContent",
+        p.qr_path AS "qrPath",
+        p.is_image_only AS "isImageOnly",
+        p.text_extraction_method AS "textExtractionMethod",
+        p.ocr_confidence AS "ocrConfidence",
+        p.language,
+        p.page_checksum AS "pageChecksum",
+        p.qr_payload AS "qrPayload"
+       FROM document_pages p
+       JOIN documents d ON p.document_id = d.id
+       WHERE d.stored_name = $1
+       ORDER BY p.page_number ASC`,
+      [filename]
+    );
 
-  res.json(pages);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch document pages",
+      error: error.message
+    });
+  }
 });
 
 app.get('/files/:filename/qr', (req, res) => {
@@ -295,72 +444,95 @@ app.get("/files/:filename/pages/:pageNumber", (req, res) => {
   res.json(page);
 });
 
-app.get("/search", (req, res) => {
-  const { q, uploadedBy, type, status } = req.query;
+app.get("/search", async (req, res) => {
+  try {
+    const { q, uploadedBy, type, status } = req.query;
 
-  if (!q) {
-    return res.status(400).json({ message: "Search query is required" });
-  }
+    if (!q) {
+      return res.status(400).json({
+        message: "Search query is required"
+      });
+    }
 
-  const query = q.toLowerCase();
+    const values = [`%${q}%`];
 
-  const results = documentPages
-    .filter((page) => {
-      const file = files.find((f) => f.filename === page.documentId);
+    let sql = `
+      SELECT
+        p.id AS "pageId",
+        d.stored_name AS "documentId",
+        d.original_name AS "originalName",
+        p.page_number AS "pageNumber",
+        p.text_content AS "textContent",
+        p.image_path AS "imagePath",
+        p.qr_path AS "qrPath",
+        p.text_extraction_method AS "textExtractionMethod",
+        d.document_type AS "normalizedType",
+        d.status,
+        u.username AS "uploadedBy"
+      FROM document_pages p
+      JOIN documents d ON p.document_id = d.id
+      LEFT JOIN users u ON d.uploaded_by = u.id
+      WHERE p.text_content ILIKE $1
+    `;
 
-      if (!file) return false;
+    if (uploadedBy) {
+      values.push(uploadedBy);
+      sql += ` AND u.username = $${values.length}`;
+    }
 
-      const matchesText = page.textContent
-        ?.toLowerCase()
-        .includes(query);
+    if (type) {
+      values.push(type);
+      sql += ` AND d.document_type = $${values.length}`;
+    }
 
-      const matchesUploader = uploadedBy
-        ? file.uploadedBy === uploadedBy
-        : true;
+    if (status) {
+      values.push(status);
+      sql += ` AND d.status = $${values.length}`;
+    }
 
-      const matchesType = type
-        ? file.normalizedType === type
-        : true;
+    sql += ` ORDER BY d.id DESC, p.page_number ASC`;
 
-      const matchesStatus = status
-        ? file.status === status
-        : true;
+    const result = await pool.query(sql, values);
 
-      return (
-        matchesText &&
-        matchesUploader &&
-        matchesType &&
-        matchesStatus
-      );
-    })
-    .map((page) => {
-      const file = files.find((f) => f.filename === page.documentId);
-
+    const results = result.rows.map((page) => {
       const text = page.textContent || "";
       const lowerText = text.toLowerCase();
+      const query = q.toLowerCase();
       const matchIndex = lowerText.indexOf(query);
 
       const start = Math.max(matchIndex - 60, 0);
-      const end = Math.min(matchIndex + query.length + 120, text.length);
+      const end = Math.min(matchIndex + q.length + 120, text.length);
 
       const snippet = text.substring(start, end);
 
       return {
-        documentId: page.documentId,
-        originalName: file?.originalName || page.documentId,
-        pageNumber: page.pageNumber,
-        snippet,
-        textContent: page.textContent,
-        imagePath: page.imagePath,
-        qrPath: page.qrPath,
-        textExtractionMethod: page.textExtractionMethod,
-        uploadedBy: file?.uploadedBy || "unknown",
-        normalizedType: file?.normalizedType || "unknown",
-        status: file?.status || "unknown"
+        ...page,
+        snippet
       };
     });
 
-  res.json(results);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({
+      message: "Search failed",
+      error: error.message
+    });
+  }
+});
+
+app.get("/db-test", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json({
+      message: "Database connected ✅",
+      time: result.rows[0].now,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Database connection failed ❌",
+      error: error.message,
+    });
+  }
 });
 
 app.listen(3001, () => {

@@ -21,6 +21,7 @@
     "pdf-lib": "^1.17.1",
     "pdf-poppler": "^0.2.3",
     "pdfjs-dist": "^5.7.284",
+    "pg": "^8.21.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0"
