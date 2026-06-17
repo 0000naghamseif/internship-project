@@ -25,6 +25,10 @@ const stampQrOnPdf = require("./services/pdfStamp.service");
 const extractTextFromPdf = require("./services/textExtract.service");
 const extractTextWithOcr = require("./services/ocr.service");
 const normalizeText = require("./services/textNormalize.service");
+const buildSearchIndex = require("./services/searchIndex.service");
+const { generateEmbeddingsForIndex } = require('./services/embedding.service');
+const semanticSearch = require("./services/semanticSearch.service");
+const suggestCategory = require('./services/categorySuggestion.service');
 
 const createChecksum = (value) => {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -494,22 +498,34 @@ app.get("/search", async (req, res) => {
 
     const result = await pool.query(sql, values);
 
-    const results = result.rows.map((page) => {
-      const text = page.textContent || "";
-      const lowerText = text.toLowerCase();
-      const query = q.toLowerCase();
-      const matchIndex = lowerText.indexOf(query);
+   const uniqueDocuments = [];
 
-      const start = Math.max(matchIndex - 60, 0);
-      const end = Math.min(matchIndex + q.length + 120, text.length);
+for (const page of result.rows) {
+  const alreadyExists = uniqueDocuments.find(
+    (item) => item.documentId === page.documentId
+  );
 
-      const snippet = text.substring(start, end);
+  if (!alreadyExists) {
+    uniqueDocuments.push(page);
+  }
+}
 
-      return {
-        ...page,
-        snippet
-      };
-    });
+const results = uniqueDocuments.map((page) => {
+  const text = page.textContent || "";
+  const lowerText = text.toLowerCase();
+  const query = q.toLowerCase();
+  const matchIndex = lowerText.indexOf(query);
+
+  const start = Math.max(matchIndex - 60, 0);
+  const end = Math.min(matchIndex + q.length + 120, text.length);
+
+  const snippet = text.substring(start, end);
+
+  return {
+    ...page,
+    snippet
+  };
+});
 
     res.json(results);
   } catch (error) {
@@ -530,6 +546,150 @@ app.get("/db-test", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       message: "Database connection failed ❌",
+      error: error.message,
+    });
+  }
+});
+
+app.post("/search-index/build", async (req, res) => {
+  try {
+    const result = await buildSearchIndex();
+
+    res.json({
+      message: "Search index built successfully ✅",
+      indexedPages: result.indexedPages
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to build search index ❌",
+      error: error.message
+    });
+  }
+});
+
+app.post("/embeddings/generate", async (req, res) => {
+  try {
+    const result = await generateEmbeddingsForIndex();
+
+    res.json({
+      message: "Embeddings generated successfully ✅",
+      embeddedRecords: result.embeddedRecords
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to generate embeddings ❌",
+      error: error.message
+    });
+  }
+});
+
+app.get("/semantic-search", async (req, res) => {
+  try {
+    const { q, limit, uploadedBy, type, status } = req.query;
+
+    if (!q) {
+      return res.status(400).json({
+        message: 'Search query is required',
+      });
+    }
+
+    const results = await semanticSearch(q, limit || 5, {
+      uploadedBy,
+      type,
+      status,
+    });
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({
+      message: 'Semantic search failed',
+      error: error.message,
+    });
+  }
+});
+
+app.get("/documents/:id/suggest-category", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const pageResult = await pool.query(
+      `
+      SELECT text_content
+      FROM document_pages
+      WHERE document_id = $1
+      ORDER BY page_number ASC
+      LIMIT 3
+      `,
+      [id]
+    );
+
+    if (!pageResult.rows.length) {
+      return res.status(404).json({
+        message: "Document not found"
+      });
+    }
+
+    const combinedText = pageResult.rows
+      .map((page) => page.text_content || "")
+      .join(" ");
+
+    const suggestion = suggestCategory(combinedText);
+
+    res.json(suggestion);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+});
+app.post('/documents/:id/confirm-category', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { category } = req.body;
+
+    // 1. save confirmed category
+    await pool.query(
+      `
+      UPDATE documents
+      SET category_ids = $1
+      WHERE id = $2
+      `,
+      [category, id],
+    );
+
+    // 2. save audit log
+    await pool.query(
+      `
+  INSERT INTO audit_logs
+  (
+    actor_id,
+    action,
+    object_type,
+    object_id,
+    metadata
+  )
+  VALUES
+  (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+  )
+  `,
+      [
+        req.user.id,
+        'CATEGORY_CONFIRMED',
+        'DOCUMENT',
+        id,
+        JSON.stringify({ category }),
+      ],
+    );
+    res.json({
+      message: 'Category confirmed and audit log saved',
+    });
+  } catch (error) {
+    res.status(500).json({
       error: error.message,
     });
   }

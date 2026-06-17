@@ -10,6 +10,7 @@ function SearchPage({ onBack, onOpenPage }) {
   const [results, setResults] = useState([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [searchMode, setSearchMode] = useState("keyword");
 
   const toFileUrl = (filePath) => {
     if (!filePath) return "";
@@ -49,7 +50,36 @@ function SearchPage({ onBack, onOpenPage }) {
       if (type) params.append("type", type);
       if (status) params.append("status", status);
 
-      const res = await api.get(`/search?${params.toString()}`);
+      let res;
+
+      if (searchMode === 'keyword') {
+        res = await api.get(`/search?${params.toString()}`);
+      }
+
+      if (searchMode === 'semantic') {
+        res = await api.get(`/semantic-search?${params.toString()}`);
+      }
+
+      if (searchMode === 'hybrid') {
+        const keywordRes = await api.get(`/search?${params.toString()}`);
+        const semanticRes = await api.get(
+          `/semantic-search?${params.toString()}`,
+        );
+
+        const combined = [...keywordRes.data, ...semanticRes.data];
+
+        const uniqueResults = combined.filter(
+          (item, index, self) =>
+            index ===
+            self.findIndex(
+              (r) =>
+                r.documentId === item.documentId &&
+                r.pageNumber === item.pageNumber,
+            ),
+        );
+
+        res = { data: uniqueResults };
+      }
 
       setResults(res.data);
       setMessage(`${res.data.length} result(s) found`);
@@ -80,7 +110,14 @@ function SearchPage({ onBack, onOpenPage }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-
+          <select
+            value={searchMode}
+            onChange={(e) => setSearchMode(e.target.value)}
+          >
+            <option value="keyword">Keyword</option>
+            <option value="semantic">Semantic</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
           <input
             placeholder="Uploader"
             value={uploadedBy}
@@ -103,7 +140,7 @@ function SearchPage({ onBack, onOpenPage }) {
           </select>
 
           <button type="submit" disabled={loading}>
-            {loading ? "Searching..." : "Search"}
+            {loading ? 'Searching...' : 'Search'}
           </button>
         </form>
 
