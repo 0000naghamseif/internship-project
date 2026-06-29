@@ -55,7 +55,46 @@ const generateEmbeddingsForIndex = async () => {
   };
 };
 
+const generateEmbeddingsForDocument = async (documentId) => {
+  const result = await pool.query(
+    `
+    SELECT 
+      s.id,
+      s.normalized_text
+    FROM search_index_records s
+    JOIN document_pages p ON s.page_id = p.id
+    WHERE p.document_id = $1
+      AND s.normalized_text IS NOT NULL
+      AND s.normalized_text <> ''
+    `,
+    [documentId]
+  );
+
+  for (const record of result.rows) {
+    const embedding = await generateEmbedding(record.normalized_text);
+
+    await pool.query(
+      `
+      UPDATE search_index_records
+      SET embedding = $1,
+          vector_embedding_id = $2
+      WHERE id = $3
+      `,
+      [
+        JSON.stringify(embedding),
+        `xenova-minilm-${record.id}`,
+        record.id,
+      ]
+    );
+  }
+
+  return {
+    embeddedRecords: result.rows.length,
+  };
+};
+
 module.exports = {
   generateEmbedding,
-  generateEmbeddingsForIndex
+  generateEmbeddingsForIndex,
+  generateEmbeddingsForDocument,
 };

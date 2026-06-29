@@ -9,9 +9,17 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
   const [search, setSearch] = useState('');
   const [suggestions, setSuggestions] = useState({});
   const [selectedCategories, setSelectedCategories] = useState({});
+  const [stats, setStats] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [suggestingId, setSuggestingId] = useState(null);
+  const [savingCategoryId, setSavingCategoryId] = useState(null);
 
   const fileInputRef = useRef(null);
   const token = localStorage.getItem('token');
+  const role = localStorage.getItem('role');
+  const isAdmin = role === 'Admin';
+
+  const canManageDocuments = role === 'Admin' || role === 'Editor';
 
   const fetchDocuments = async () => {
     try {
@@ -22,8 +30,19 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
     }
   };
 
+  const fetchStats = async () => {
+  if (!isAdmin) return;
+
+  try {
+    const res = await api.get('/dashboard/stats');
+    setStats(res.data);
+  } catch (error) {
+    console.log(error);
+  }
+};
   useEffect(() => {
     fetchDocuments();
+    fetchStats();
 
     const interval = setInterval(() => {
       fetchDocuments();
@@ -49,6 +68,7 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
     formData.append('file', file);
 
     try {
+     setIsUploading(true);
       await api.post('/upload', formData, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -65,8 +85,18 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
       fetchDocuments();
     } catch (error) {
       console.log(error);
-      setMessage('Upload failed ❌');
-    }
+      if (error.response?.status === 403) {
+        setMessage(
+          'You do not have permission to upload files. Only Admin and Editor can upload.',
+        );
+      } else {
+        setMessage(error.response?.data?.message || 'Upload failed ❌');
+      }
+    } finally {
+  setTimeout(() => {
+    setIsUploading(false);
+  }, 2500);
+}
   };
 
   const filteredDocuments = documents.filter((doc) =>
@@ -75,6 +105,7 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
 
   const handleSuggestCategory = async (doc) => {
     try {
+      setSuggestingId(doc.id);
       const res = await api.get(`/documents/${doc.id}/suggest-category`);
 
       setSuggestions((prev) => ({
@@ -86,13 +117,27 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
         ...prev,
         [doc.id]: res.data.suggestedCategory,
       }));
+      
     } catch (error) {
-      setMessage('Category suggestion failed ❌');
-    }
+      if (error.response?.status === 403) {
+        setMessage(
+          'You do not have permission to suggest categories. Only Admin and Editor can use AI categorization.',
+        );
+      } else {
+        setMessage(
+          error.response?.data?.message || 'Category suggestion failed ❌',
+        );
+      }
+    }finally {
+  setTimeout(() => {
+    setSuggestingId(null);
+  }, 2500);
+}
   };
 
   const handleConfirmCategory = async (doc) => {
     try {
+      setSavingCategoryId(doc.id);
       await api.post(
         `/documents/${doc.id}/confirm-category`,
         {
@@ -106,12 +151,53 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
       );
 
       setMessage('Category saved ✅');
+      setSuggestions((prev) => {
+        const updated = { ...prev };
+        delete updated[doc.id];
+        return updated;
+      });
+
+      setSelectedCategories((prev) => {
+        const updated = { ...prev };
+        delete updated[doc.id];
+        return updated;
+      });
+
       fetchDocuments();
     } catch (error) {
-      setMessage('Category confirmation failed ❌');
-    }
+      if (error.response?.status === 403) {
+        setMessage(
+          'You do not have permission to confirm categories. Only Admin and Editor can update document categories.',
+        );
+      } else {
+        setMessage(
+          error.response?.data?.message || 'Category confirmation failed ❌',
+        );
+      }
+    }finally {
+  setTimeout(() => {
+    setSavingCategoryId(null);
+  }, 2500);
+}
   };
+const handleCancelProcessing = async (documentId) => {
+  try {
+    await api.post(`/documents/${documentId}/cancel`);
 
+    setMessage("Processing cancellation requested ✅");
+    fetchDocuments();
+  } catch (error) {
+    if (error.response?.status === 403) {
+      setMessage(
+        "You do not have permission to cancel processing. Only Admin and Editor can cancel."
+      );
+    } else {
+      setMessage(
+        error.response?.data?.message || "Failed to cancel processing ❌"
+      );
+    }
+  }
+};
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
@@ -130,24 +216,63 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
           </button>
         </div>
       </div>
-      <div className="dashboard-card">
-        <h2>Upload Document</h2>
+      {isAdmin && stats && (
+        <div className="stats-grid">
+          <div className="stat-card">
+            <span>Total Documents</span>
+            <strong>{stats.totalDocuments}</strong>
+          </div>
 
-        <form onSubmit={handleUpload} className="upload-form">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.docx,.jpg,.jpeg,.png"
-            onChange={(e) => setFile(e.target.files[0])}
-          />
+          <div className="stat-card done">
+            <span>Done</span>
+            <strong>{stats.done}</strong>
+          </div>
 
-          <button className="auth-button" type="submit">
-            Upload
-          </button>
-        </form>
+          <div className="stat-card processing">
+            <span>Processing</span>
+            <strong>{stats.processing}</strong>
+          </div>
 
-        {message && <p className="message">{message}</p>}
-      </div>
+          <div className="stat-card queued">
+            <span>Queued</span>
+            <strong>{stats.queued}</strong>
+          </div>
+
+          <div className="stat-card failed">
+            <span>Failed</span>
+            <strong>{stats.failed}</strong>
+          </div>
+
+          <div className="stat-card cancelled">
+            <span>Cancelled</span>
+            <strong>{stats.cancelled}</strong>
+          </div>
+        </div>
+      )}
+      {canManageDocuments && (
+        <div className="dashboard-card">
+          <h2>Upload Document</h2>
+
+          <form onSubmit={handleUpload} className="upload-form">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.jpg,.jpeg,.png"
+              onChange={(e) => setFile(e.target.files[0])}
+            />
+
+            <button
+              className="auth-button"
+              type="submit"
+              disabled={isUploading}
+            >
+              {isUploading ? 'Uploading...' : 'Upload'}
+            </button>
+          </form>
+
+          {message && <p className="message">{message}</p>}
+        </div>
+      )}
 
       <div className="dashboard-card">
         <h2>Documents</h2>
@@ -184,72 +309,142 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
                       {doc.status}
                     </span>
                   </td>
-                  <td>{doc.pageCount}</td>
+                  {/* <td>{doc.pageCount}</td> */}
+                  <td>
+                    {doc.status === 'Processing' ? (
+                      <span className="progress-text">
+                        {doc.processedPages || 0} /{' '}
+                        {doc.totalPages || doc.pageCount || 0}
+                      </span>
+                    ) : (
+                      doc.pageCount
+                    )}
+                  </td>
                   <td>{doc.normalizedType}</td>
                   <td>{doc.uploadedBy}</td>
                   <td>
-                    {suggestions[doc.id] ? (
+                    {doc.category && !suggestions[doc.id] ? (
                       <div className="category-box">
-                        <span className="category-badge">
-                          Suggested: {suggestions[doc.id].suggestedCategory}
-                        </span>
+                        <span className="category-badge">{doc.category}</span>
 
-                        <small>
-                          Confidence: {suggestions[doc.id].confidence}
-                        </small>
+                        {canManageDocuments && (
+                          <button
+                            className="small-button"
+                            disabled={
+                              doc.status === 'Queued' ||
+                              doc.status === 'Processing'
+                            }
+                            onClick={() => {
+                              setSuggestions((prev) => ({
+                                ...prev,
+                                [doc.id]: {
+                                  suggestedCategory: doc.category,
+                                  confidence: 'Saved',
+                                },
+                              }));
 
-                        <select
-                          className="category-select"
-                          value={selectedCategories[doc.id] || ''}
-                          onChange={(e) =>
-                            setSelectedCategories((prev) => ({
-                              ...prev,
-                              [doc.id]: e.target.value,
-                            }))
-                          }
-                        >
-                          <option value="Medical">Medical</option>
-                          <option value="Finance">Finance</option>
-                          <option value="Education">Education</option>
-                          <option value="Legal">Legal</option>
-                          <option value="Technology">Technology</option>
-                          <option value="HumanResources">
-                            Human Resources
-                          </option>
-                          <option value="Uncategorized">Uncategorized</option>
-                        </select>
-
-                        <button
-                          className="small-button"
-                          onClick={() => handleConfirmCategory(doc)}
-                        >
-                          Save Category
-                        </button>
+                              setSelectedCategories((prev) => ({
+                                ...prev,
+                                [doc.id]: doc.category,
+                              }));
+                            }}
+                          >
+                            Edit
+                          </button>
+                        )}
                       </div>
-                    ) : (
+                    ) : suggestions[doc.id] ? (
+                      canManageDocuments ? (
+                        <div className="category-box">
+                          <span className="category-badge">
+                            Suggested: {suggestions[doc.id].suggestedCategory}
+                          </span>
+
+                          <small>
+                            Confidence: {suggestions[doc.id].confidence}
+                          </small>
+
+                          <select
+                            className="category-select"
+                            value={selectedCategories[doc.id] || ''}
+                            onChange={(e) =>
+                              setSelectedCategories((prev) => ({
+                                ...prev,
+                                [doc.id]: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="Medical">Medical</option>
+                            <option value="Finance">Finance</option>
+                            <option value="Education">Education</option>
+                            <option value="Legal">Legal</option>
+                            <option value="Technology">Technology</option>
+                            <option value="HumanResources">
+                              Human Resources
+                            </option>
+                            <option value="Uncategorized">Uncategorized</option>
+                          </select>
+
+                          <button
+                            className="small-button"
+                            onClick={() => handleConfirmCategory(doc)}
+                            disabled={
+                              savingCategoryId === doc.id ||
+                              doc.status === 'Queued' ||
+                              doc.status === 'Processing'
+                            }
+                          >
+                            {savingCategoryId === doc.id
+                              ? 'Saving...'
+                              : 'Save Category'}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="read-only-text">Read only</span>
+                      )
+                    ) : canManageDocuments ? (
                       <button
                         className="small-button"
                         onClick={() => handleSuggestCategory(doc)}
+                        disabled={
+                          suggestingId === doc.id ||
+                          doc.status === 'Queued' ||
+                          doc.status === 'Processing'
+                        }
                       >
-                        Suggest
+                        {suggestingId === doc.id ? 'Suggesting...' : 'Suggest'}
                       </button>
+                    ) : (
+                      <span className="read-only-text">No category</span>
                     )}
                   </td>
                   <td>
-                    {doc.printablePdfPath && (
-                      <a
-                        className="action-link"
-                        href={`http://localhost:3001/files/${doc.filename}/printable`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Printable PDF
-                      </a>
-                    )}
+                    <div className="actions-box">
+                      {doc.printablePdfPath && (
+                        <a
+                          className="action-link"
+                          href={`http://localhost:3001/files/${doc.filename}/printable?token=${token}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Printable PDF
+                        </a>
+                      )}
+
+                      {canManageDocuments && doc.status === 'Processing' && (
+                        <button
+                          className="cancel-button"
+                          onClick={() => handleCancelProcessing(doc.id)}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <button
                       className="view-button"
+                      disabled={doc.status === 'Queued' || doc.status === 'Processing'}
                       onClick={() => onViewDocument(doc.filename)}
                     >
                       View Pages

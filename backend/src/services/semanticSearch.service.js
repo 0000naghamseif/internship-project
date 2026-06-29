@@ -19,7 +19,7 @@ const cosineSimilarity = (vectorA, vectorB) => {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 };
 
-const semanticSearch = async (query, limit = 5, filters = {}) => {
+const semanticSearch = async (query, limit = 5, filters = {}, user = null) => {
   const queryEmbedding = await generateEmbedding(query);
 
  const values = [];
@@ -45,6 +45,11 @@ const semanticSearch = async (query, limit = 5, filters = {}) => {
   LEFT JOIN users u ON d.uploaded_by = u.id
   WHERE s.embedding IS NOT NULL
 `;
+
+// if (user && user.role !== 'Admin') {
+//   values.push(user.id);
+//   sql += ` AND d.uploaded_by = $${values.length}`;
+// }
 
  if (filters.uploadedBy) {
    values.push(filters.uploadedBy);
