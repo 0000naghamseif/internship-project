@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "start": "node src/app.js",
+  "test": "jest"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +32,8 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.2.1",
     "globals": "^17.5.0",
-    "prettier": "^3.8.3"
+    "jest": "^30.4.2",
+    "prettier": "^3.8.3",
+    "supertest": "^7.2.2"
   }
 }

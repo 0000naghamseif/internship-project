@@ -35,7 +35,9 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
 
   try {
     const res = await api.get('/dashboard/stats');
-    setStats(res.data);
+    if(res && res.data){
+      setStats(res.data);
+    }
   } catch (error) {
     console.log(error);
   }

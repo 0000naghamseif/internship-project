@@ -63,16 +63,20 @@ exports.login = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "User not found" });
-    }
+  return res.status(401).json({
+    message: "Invalid username or password",
+  });
+}
 
     const user = result.rows[0];
 
     const isValid = await bcrypt.compare(password, user.password);
 
     if (!isValid) {
-      return res.status(401).json({ message: "Wrong password" });
-    }
+  return res.status(401).json({
+    message: "Invalid username or password",
+  });
+}
 
     const token = jwt.sign(
       {
