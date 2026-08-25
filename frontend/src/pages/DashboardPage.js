@@ -13,6 +13,8 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
   const [isUploading, setIsUploading] = useState(false);
   const [suggestingId, setSuggestingId] = useState(null);
   const [savingCategoryId, setSavingCategoryId] = useState(null);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [showAuditLogs, setShowAuditLogs] = useState(false);
 
   const fileInputRef = useRef(null);
   const token = localStorage.getItem('token');
@@ -40,18 +42,48 @@ function DashboardPage({ onLogout, onViewDocument, onSearch }){
     }
   } catch (error) {
     console.log(error);
+//     console.error(
+//   "[UPLOAD ERROR]",
+//   error.response?.data || error.message
+// );
   }
 };
+const fetchAuditLogs = async () => {
+  if (!isAdmin || !showAuditLogs) return;
+
+  try {
+    const res = await api.get("/audit");
+    setAuditLogs(res.data);
+  } catch (error) {
+    console.log(error);
+  }
+};
+
   useEffect(() => {
     fetchDocuments();
     fetchStats();
+    // fetchAuditLogs();
 
     const interval = setInterval(() => {
       fetchDocuments();
+      fetchStats();
+      // fetchAuditLogs();
     }, 3000);
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+  if (!isAdmin || !showAuditLogs) return;
+
+  fetchAuditLogs();
+
+  const interval = setInterval(() => {
+    fetchAuditLogs();
+  }, 3000);
+
+  return () => clearInterval(interval);
+}, [isAdmin, showAuditLogs]);
 
   const handleUpload = async (e) => {
     e.preventDefault();
@@ -200,6 +232,29 @@ const handleCancelProcessing = async (documentId) => {
     }
   }
 };
+
+const handleDeleteDocument = async (doc) => {
+  const confirmed = window.confirm(
+    `Are you sure you want to delete "${doc.originalName}"? This action cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await api.delete(`/files/${doc.id}`);
+    setMessage('Document deleted successfully ✅');
+    fetchDocuments();
+  } catch (error) {
+    if (error.response?.status === 403) {
+      setMessage('You do not have permission to delete documents. Only Admin can delete.');
+    } else if (error.response?.status === 404) {
+      setMessage('Document not found ❌');
+    } else {
+      setMessage(error.response?.data?.message || 'Failed to delete document ❌');
+    }
+  }
+};
+
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
@@ -218,6 +273,51 @@ const handleCancelProcessing = async (documentId) => {
           </button>
         </div>
       </div>
+      {isAdmin && (
+        <div className="audit-toggle-container">
+          <button
+            className="audit-button"
+            onClick={() => setShowAuditLogs(!showAuditLogs)}
+          >
+            Track User Actions
+          </button>
+        </div>
+      )}
+      {showAuditLogs && (
+        <div className="dashboard-card audit-card">
+          <h2>User Activity Tracking</h2>
+
+          <div className="table-wrapper">
+            <table className="documents-table">
+              <thead>
+                <tr>
+                  <th>Action</th>
+                  <th>Object</th>
+                  <th>User ID</th>
+                  <th>Date</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {auditLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td>{log.action}</td>
+
+                    <td>{log.object_type}</td>
+
+                    <td>{log.actor_id || 'System'}</td>
+
+                    <td>{new Date(log.timestamp).toLocaleString()}</td>
+
+                    <td>{JSON.stringify(log.metadata)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {isAdmin && stats && (
         <div className="stats-grid">
           <div className="stat-card">
@@ -249,6 +349,16 @@ const handleCancelProcessing = async (documentId) => {
             <span>Cancelled</span>
             <strong>{stats.cancelled}</strong>
           </div>
+        </div>
+      )}
+      {stats?.failed > 0 && (
+        <div className="alert-box">
+          ⚠️ Warning: {stats.failed} document(s) failed during processing.
+        </div>
+      )}
+      {stats?.queued > 5 && (
+        <div className="alert-box">
+          📄 Queue is getting busy ({stats.queued} documents waiting).
         </div>
       )}
       {canManageDocuments && (
@@ -441,12 +551,23 @@ const handleCancelProcessing = async (documentId) => {
                           Cancel
                         </button>
                       )}
+
+                      {isAdmin && (
+                        <button
+                          className="delete-button"
+                          onClick={() => handleDeleteDocument(doc)}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </td>
                   <td>
                     <button
                       className="view-button"
-                      disabled={doc.status === 'Queued' || doc.status === 'Processing'}
+                      disabled={
+                        doc.status === 'Queued' || doc.status === 'Processing'
+                      }
                       onClick={() => onViewDocument(doc.filename)}
                     >
                       View Pages

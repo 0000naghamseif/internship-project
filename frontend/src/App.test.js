@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen} from "@testing-library/react";
 import App from "./App";
 import DocumentViewerPage from "./pages/DocumentViewerPage";
-import { act } from "react-dom/test-utils";
+
 
 
 import api from "./services/api";

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import api from "../services/api";
+import "./AuthPage.css";
 
 function RegisterPage({ onSwitchToLogin }) {
   const [username, setUsername] = useState("");

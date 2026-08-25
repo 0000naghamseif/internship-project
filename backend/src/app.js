@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('fs');
 const path = require("path");
 const cors = require("cors");
 const app = express();
@@ -14,6 +15,7 @@ app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 
 const authRoutes = require('./routes/auth.routes');
+const auditRoutes = require("./routes/audit.routes");
 const verifyToken = require('./middleware/auth.middleware');
 const allowRoles = require('./middleware/role.middleware');
 const upload = require('./middleware/upload.middleware');
@@ -42,7 +44,7 @@ const createAuditLog = require("./services/audit.service");
 const createChecksum = (value) => {
   return crypto.createHash("sha256").update(value).digest("hex");
 };
-
+app.use("/audit", auditRoutes);
 // const rejectUnauthorizedUpload = (req, res, next) => {
 //   const role = req.user?.role;
 
@@ -458,6 +460,90 @@ app.get('/files', verifyToken, async (req, res) => {
     });
   }
 });
+
+
+app.delete(
+  '/files/:id',
+  verifyToken,
+  allowRoles(['Admin']),
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      
+      const docResult = await pool.query(
+        `SELECT id, original_name, stored_name, qr_path, printable_pdf_path
+         FROM documents WHERE id = $1`,
+        [id],
+      );
+
+      if (docResult.rows.length === 0) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      const doc = docResult.rows[0];
+
+      
+      const pagesResult = await pool.query(
+        `SELECT image_path, qr_path FROM document_pages WHERE document_id = $1`,
+        [id],
+      );
+
+     
+      const safeUnlink = (filePath) => {
+        if (!filePath) return;
+        try {
+          const fullPath = path.isAbsolute(filePath)
+            ? filePath
+            : path.join(process.cwd(), filePath);
+
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+          }
+        } catch (err) {
+          console.error('Failed to delete file:', filePath, err.message);
+        }
+      };
+
+     
+      safeUnlink(path.join('uploads', doc.stored_name));
+
+     
+      safeUnlink(doc.qr_path);
+      safeUnlink(doc.printable_pdf_path);
+
+     
+      pagesResult.rows.forEach((page) => {
+        safeUnlink(page.image_path);
+        safeUnlink(page.qr_path);
+      });
+
+      
+      await pool.query(`DELETE FROM document_pages WHERE document_id = $1`, [id]);
+      await pool.query(`DELETE FROM documents WHERE id = $1`, [id]);
+
+     
+      await createAuditLog({
+        actorId: req.user.id,
+        action: 'DOCUMENT_DELETED',
+        objectType: 'DOCUMENT',
+        objectId: id,
+        metadata: {
+          originalName: doc.original_name,
+          storedName: doc.stored_name,
+        },
+      });
+
+      return res.json({ message: 'Document deleted successfully' });
+    } catch (error) {
+      return res.status(500).json({
+        message: 'Failed to delete document',
+        error: error.message,
+      });
+    }
+  },
+);
+
 
 app.get("/pages",verifyToken, async (req, res) => {
   try {

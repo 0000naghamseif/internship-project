@@ -3,12 +3,25 @@ const fs = require("fs");
 const { execFile } = require("child_process"); // ADDED: used to run LibreOffice command
 const { PDFDocument } = require("pdf-lib");
 const sharp = require("sharp");
+const os = require("os");
+
+const getSofficeCommand = () => {
+  const platform = os.platform();
+
+  if (platform === "win32") {
+    return "C:\\Program Files\\LibreOffice\\program\\soffice.exe";
+  }
+
+  // Linux (Docker container) أو Mac
+  return "soffice";
+};
 
 // ADDED: function to convert DOCX to PDF using LibreOffice
 const convertDocxToPdf = (inputPath, outputDir) => {
   return new Promise((resolve, reject) => {
     execFile(
-      "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+       getSofficeCommand(),
+      // "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
       [
         "--headless",
         "--convert-to",
